@@ -30,6 +30,24 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
+static void sema_down_timeout(struct semaphore *sema, int64_t timeout) 
+{
+    ASSERT(sema != NULL);
+    ASSERT(intr_get_level() == INTR_ON);
+    
+    if (timeout <= 0) return;
+    
+    int64_t start = timer_ticks();
+    while (sema->value == 0) {
+        if (timer_elapsed(start) >= timeout) break;
+        thread_yield();
+    }
+    
+    if (sema->value > 0) {
+        sema->value--;
+    }
+}
+
 /** Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -89,11 +107,12 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-  int64_t start = timer_ticks ();
-
+  struct semaphore wait_sem;
+  sema_init (&wait_sem , 0);
+  int64_t wake_tick=timer_ticks ()+ ticks;
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  while (timer_ticks () < wake_tick) 
+    sema_down_timeout(&wait_sem,1);
 }
 
 /** Sleeps for approximately MS milliseconds.  Interrupts must be
